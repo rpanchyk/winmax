@@ -121,6 +121,10 @@ After editing the file, apply it without a restart:
 .\winmax.exe reload
 ```
 
+`reload` loads the file again, clears the list of windows already handled in this session, and re-scans open windows against the new rules.
+
+For the service worker, config resolution follows the order above (there is no `--config` flag on the worker). Setting `WINMAX_CONFIG` in the user environment is an alternative to placing `config.yml` next to the executable. **`install` still requires `config.yml` beside `winmax.exe`** so the service can validate the deployment.
+
 ## Commands
 
 ```text
@@ -135,7 +139,7 @@ winmax status       show service state and binary path
 winmax console --config C:\path\config.yml
 ```
 
-`install` / `uninstall` must be run from an elevated prompt. `config.yml` must sit next to `winmax.exe`. `install` restarts the service if it is already running and waits until the desktop worker is alive. `status` does not need Administrator.
+`install` / `uninstall` must be run from an elevated prompt. `config.yml` must sit next to `winmax.exe`. `install` restarts the service if it is already running, waits until the desktop worker is alive, and removes a legacy Run-key autostart entry if one exists from an older install. `status` does not need Administrator.
 
 Only one watcher runs per user session. Starting `console` while the service worker is already running will fail with “already running”.
 
@@ -184,6 +188,7 @@ The project is Windows-only (`//go:build windows` on service, Win32, and session
 - The service must be installed with Administrator rights.
 - Place the binary in a writable folder if you want `winmax.log` next to it (for example not under `Program Files` unless you adjust ACLs).
 - `reload` signals the watcher in this session (`Local\\WinMax_Reload`) and, when available, `Global\\WinMax_Reload`. If nothing is running, it reports that the daemon is not running.
+- Crashed workers are restarted by the service with exponential backoff (2 s–60 s).
 
 ## License
 

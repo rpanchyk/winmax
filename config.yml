@@ -3,4 +3,4 @@ apps:
     match:
       condition: "OR"
       title: "MetaTrader"
-      process: "terminal64.exe"
+      process: "*terminal*.exe"

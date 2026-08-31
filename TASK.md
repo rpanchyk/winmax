@@ -1,8 +1,12 @@
 # Window Maximizer
-The system daemon listens to new open windows and maximizes them by predefined rules.
+
+Original task specification. **User-facing documentation lives in [README.md](README.md).**
+
+The system daemon listens for new top-level windows and maximizes them by rules in `config.yml`.
 
 ## Configuration
-All configuration is done in the `config.yml` file.
+
+All configuration is in `config.yml`:
 
 ```yaml
 apps:
@@ -15,42 +19,40 @@ apps:
 
 `name` is used in logs. `match.title` and `match.process` identify the window. If both are set, `condition` decides whether both must match (`AND`) or either may match (`OR`). First matching app wins. Broker titles often omit the word MetaTrader, so `OR` (or process-only) is the usual match. MetaTrader 4 is `terminal.exe`; MetaTrader 5 is `terminal64.exe`.
 
+See [README.md](README.md) for matching rules, config file search order, and examples.
+
 ## Implementation
 
 ### Language
-Code is written in Go.
 
-### Daemon
-The system daemon is implemented as a Windows service.
-It listens to new open windows and maximizes them by predefined rules.
+Go (Windows only).
 
-It maximizes the main top-level window only. Child windows, tool windows, and owned dialogs (login / connect) are ignored. If a modal is open, it waits until that dialog closes, then maximizes the owner. If the previous session was closed maximized, a brief maximized flash on the next start is not treated as done — the window is maximized once after startup settles.
+### Architecture
 
-It can be run in console mode with `winmax console` for debugging.
+- **Windows service (`WinMax`)** — LocalSystem, auto-start. Supervises per-session workers for active, connected, and disconnected logon sessions.
+- **Worker (`winmax worker`)** — internal; runs as the logged-on user. Hooks window show/hide/title/destroy events, matches `config.yml`, calls `ShowWindow(SW_MAXIMIZE)`.
+
+Console / foreground mode (`winmax console`) runs the worker in the current terminal for debugging.
+
+The watcher maximizes the main top-level window only. Child windows, tool windows, and owned dialogs (login / connect) are ignored. If a modal is open, it waits until that dialog closes, then maximizes the owner. If the previous session was closed maximized, a brief maximized flash on the next start is not treated as done — the window is maximized once after startup settles.
+
+Only one worker runs per user session (mutex `Local\WinMax_UserLogonDaemon`).
 
 ### Logging
-All watcher logs are written to `winmax.log` next to the executable.
-In console / foreground mode, the same lines are also printed to the console.
-The Windows service writes lifecycle messages to the Event Viewer (source `WinMax`).
 
-## Usage
-The system daemon can be used with the `winmax` command.
+- Watcher: `winmax.log` next to the executable; console / foreground also prints to stdout.
+- Service lifecycle: Event Viewer, source `WinMax`.
+- Early worker failure: `winmax-worker.err` next to the executable.
 
-### Help
-`winmax help` shows command usage.
+## Commands
 
-### Install
-`winmax install` installs and starts the Windows service (Administrator).
-`config.yml` must sit next to `winmax.exe`.
+| Command | Notes |
+|---|---|
+| `winmax help` | Usage |
+| `winmax install` | Install and start service (Administrator). Requires `config.yml` next to `winmax.exe`. |
+| `winmax uninstall` | Stop and remove service (Administrator) |
+| `winmax reload` | Reload config in the running worker; re-scans open windows |
+| `winmax status` | Service state and binary path |
+| `winmax foreground` / `winmax console` | Run watcher in this terminal (`Ctrl+C` to stop). Optional `--config` / `-c`. |
 
-### Uninstall
-`winmax uninstall` stops and removes the Windows service (Administrator).
-
-### Reload
-`winmax reload` reloads `config.yml` in the running watcher.
-
-### Foreground
-`winmax foreground` runs the watcher in this terminal with live logs. Stop with `Ctrl+C`.
-
-### Console
-`winmax console` is the same as foreground.
+Full details: [README.md](README.md).
