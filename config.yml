@@ -1,0 +1,6 @@
+apps:
+  - name: "MetaTrader"
+    match:
+      condition: "OR"
+      title: "MetaTrader"
+      process: "terminal64.exe"
