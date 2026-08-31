@@ -13,13 +13,14 @@ import (
 )
 
 const (
-	retryAttempts = 15
-	retryDelay    = 200 * time.Millisecond
-	stableNeeded  = 3
-	stableWait    = 100 * time.Millisecond
-	stableMax     = 20
-	appMaxWait    = 10
-	appMaxDelay   = 80 * time.Millisecond
+	retryAttempts  = 15
+	retryDelay     = 200 * time.Millisecond
+	stateReadDelay = 1 * time.Second
+	stableNeeded   = 3
+	stableWait     = 100 * time.Millisecond
+	stableMax      = 20
+	appMaxWait     = 10
+	appMaxDelay    = 80 * time.Millisecond
 )
 
 type handledKey struct {
@@ -177,6 +178,11 @@ func (d *Daemon) tryMaximize(hwnd uintptr) bool {
 	rule, ok := match.First(d.snapshotRules(), title, path)
 	if !ok {
 		return title != ""
+	}
+
+	time.Sleep(stateReadDelay)
+	if shouldStop(hwnd) {
+		return true
 	}
 
 	waitUntilStable(hwnd)
