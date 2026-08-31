@@ -13,6 +13,7 @@ import (
 const (
 	EVENT_OBJECT_DESTROY    = 0x8001
 	EVENT_OBJECT_SHOW       = 0x8002
+	EVENT_OBJECT_HIDE       = 0x8003
 	EVENT_OBJECT_NAMECHANGE = 0x800C
 
 	WINEVENT_OUTOFCONTEXT   = 0x0000
@@ -20,8 +21,10 @@ const (
 
 	OBJID_WINDOW = 0
 
-	SW_HIDE     = 0
-	SW_MAXIMIZE = 3
+	SW_HIDE          = 0
+	SW_SHOWNORMAL    = 1
+	SW_SHOWMAXIMIZED = 3
+	SW_MAXIMIZE      = 3
 
 	GWL_STYLE   = -16
 	GWL_EXSTYLE = -20
@@ -29,10 +32,12 @@ const (
 	WS_MAXIMIZEBOX = 0x00010000
 	WS_CHILD       = 0x40000000
 
-	WS_EX_TOOLWINDOW = 0x00000080
-	WS_EX_APPWINDOW  = 0x00040000
+	WS_EX_DLGMODALFRAME = 0x00000001
+	WS_EX_TOOLWINDOW    = 0x00000080
+	WS_EX_APPWINDOW     = 0x00040000
 
-	GA_ROOT = 2
+	GA_ROOT  = 2
+	GW_OWNER = 4
 
 	PROCESS_QUERY_LIMITED_INFORMATION = 0x1000
 
@@ -66,6 +71,10 @@ var (
 	procGetWindowLongPtrW          = user32.NewProc("GetWindowLongPtrW")
 	procGetWindowThreadProcessId   = user32.NewProc("GetWindowThreadProcessId")
 	procGetAncestor                = user32.NewProc("GetAncestor")
+	procGetWindow                  = user32.NewProc("GetWindow")
+	procIsWindowEnabled            = user32.NewProc("IsWindowEnabled")
+	procGetWindowRect              = user32.NewProc("GetWindowRect")
+	procGetWindowPlacement         = user32.NewProc("GetWindowPlacement")
 	procEnumWindows                = user32.NewProc("EnumWindows")
 	procGetConsoleWindow           = kernel32.NewProc("GetConsoleWindow")
 	procGetConsoleProcessList      = kernel32.NewProc("GetConsoleProcessList")
@@ -152,6 +161,65 @@ func GetWindowProcessID(hwnd uintptr) uint32 {
 func GetAncestor(hwnd uintptr, flags uint32) uintptr {
 	r, _, _ := procGetAncestor.Call(hwnd, uintptr(flags))
 	return r
+}
+
+func Owner(hwnd uintptr) uintptr {
+	r, _, _ := procGetWindow.Call(hwnd, GW_OWNER)
+	return r
+}
+
+func IsOwned(hwnd uintptr) bool {
+	return Owner(hwnd) != 0
+}
+
+func IsWindowEnabled(hwnd uintptr) bool {
+	r, _, _ := procIsWindowEnabled.Call(hwnd)
+	return r != 0
+}
+
+func IsDialogWindow(hwnd uintptr) bool {
+	if IsOwned(hwnd) {
+		return true
+	}
+	return GetWindowLongPtr(hwnd, GWL_EXSTYLE)&WS_EX_DLGMODALFRAME != 0
+}
+
+type RECT struct {
+	Left, Top, Right, Bottom int32
+}
+
+func GetWindowRect(hwnd uintptr) (RECT, bool) {
+	var r RECT
+	ok, _, _ := procGetWindowRect.Call(hwnd, uintptr(unsafe.Pointer(&r)))
+	return r, ok != 0
+}
+
+type POINT struct {
+	X, Y int32
+}
+
+type WINDOWPLACEMENT struct {
+	Length         uint32
+	Flags          uint32
+	ShowCmd        uint32
+	MinPosition    POINT
+	MaxPosition    POINT
+	NormalPosition RECT
+}
+
+func GetWindowPlacement(hwnd uintptr) (WINDOWPLACEMENT, bool) {
+	var wp WINDOWPLACEMENT
+	wp.Length = uint32(unsafe.Sizeof(wp))
+	r, _, _ := procGetWindowPlacement.Call(hwnd, uintptr(unsafe.Pointer(&wp)))
+	return wp, r != 0
+}
+
+func PlacementMaximized(hwnd uintptr) bool {
+	wp, ok := GetWindowPlacement(hwnd)
+	if !ok {
+		return false
+	}
+	return wp.ShowCmd == SW_SHOWMAXIMIZED
 }
 
 func EnumWindows(cb uintptr) {

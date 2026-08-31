@@ -27,6 +27,18 @@ func TestNullWindowQueries(t *testing.T) {
 	if GetWindowProcessID(0) != 0 {
 		t.Fatal("null hwnd should have pid 0")
 	}
+	if _, ok := GetWindowRect(0); ok {
+		t.Fatal("null hwnd should not have a rect")
+	}
+	if PlacementMaximized(0) {
+		t.Fatal("null hwnd is not placement-maximized")
+	}
+	if IsOwned(0) {
+		t.Fatal("null hwnd is not owned")
+	}
+	if IsDialogWindow(0) {
+		t.Fatal("null hwnd is not a dialog")
+	}
 }
 
 func TestOwnsConsoleDoesNotPanic(t *testing.T) {
@@ -62,6 +74,9 @@ func TestMaximizeRealWindow(t *testing.T) {
 	if !IsZoomed(hwnd) {
 		t.Fatal("ShowWindow(SW_MAXIMIZE) did not maximize the window")
 	}
+	if !PlacementMaximized(hwnd) {
+		t.Fatal("maximized window should report SW_SHOWMAXIMIZED placement")
+	}
 }
 
 type wndClassEx struct {
@@ -79,7 +94,60 @@ type wndClassEx struct {
 	iconSm     windows.Handle
 }
 
+func TestOwnedDialogIsSkipped(t *testing.T) {
+	parent, cleanupParent, err := createTestWindow("WinMaxOwnerParent")
+	if err != nil {
+		t.Skip(err)
+	}
+	defer cleanupParent()
+	ShowWindow(parent, 5)
+
+	owned, cleanupOwned, err := createTestWindowEx("WinMaxOwnedDlg", 0, parent)
+	if err != nil {
+		t.Skip(err)
+	}
+	defer cleanupOwned()
+	ShowWindow(owned, 5)
+
+	dialog, cleanupDialog, err := createTestWindowEx("WinMaxDlgFrame", WS_EX_DLGMODALFRAME, 0)
+	if err != nil {
+		t.Skip(err)
+	}
+	defer cleanupDialog()
+	ShowWindow(dialog, 5)
+
+	if IsOwned(parent) || IsDialogWindow(parent) {
+		t.Fatal("main window should not be treated as a dialog")
+	}
+	if !IsTopLevel(owned) {
+		t.Fatal("owned window is still top-level, so IsTopLevel is not enough")
+	}
+	if !IsOwned(owned) || !IsDialogWindow(owned) {
+		t.Fatal("owned window should be treated as a dialog")
+	}
+	if Owner(owned) != parent {
+		t.Fatalf("owner=%#x want %#x", Owner(owned), parent)
+	}
+	if !IsDialogWindow(dialog) {
+		t.Fatal("WS_EX_DLGMODALFRAME should be treated as a dialog")
+	}
+	if !IsWindowEnabled(parent) {
+		t.Fatal("parent should start enabled")
+	}
+
+	enable := user32.NewProc("EnableWindow")
+	enable.Call(parent, 0)
+	if IsWindowEnabled(parent) {
+		t.Fatal("EnableWindow(false) should disable the parent")
+	}
+	enable.Call(parent, 1)
+}
+
 func createTestWindow(class string) (uintptr, func(), error) {
+	return createTestWindowEx(class, 0, 0)
+}
+
+func createTestWindowEx(class string, exStyle, owner uintptr) (uintptr, func(), error) {
 	className, err := windows.UTF16PtrFromString(class)
 	if err != nil {
 		return 0, nil, err
@@ -112,12 +180,12 @@ func createTestWindow(class string) (uintptr, func(), error) {
 		cwUseDefault       = 0x80000000
 	)
 	hwnd, _, err := user32.NewProc("CreateWindowExW").Call(
-		0,
+		exStyle,
 		uintptr(unsafe.Pointer(className)),
 		uintptr(unsafe.Pointer(title)),
 		wsOverlappedWindow,
 		cwUseDefault, cwUseDefault, 400, 300,
-		0, 0, mod, 0,
+		owner, 0, mod, 0,
 	)
 	if hwnd == 0 {
 		user32.NewProc("UnregisterClassW").Call(uintptr(unsafe.Pointer(className)), mod)

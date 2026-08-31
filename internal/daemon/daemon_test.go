@@ -73,6 +73,15 @@ func TestClaimIsExclusive(t *testing.T) {
 	}
 }
 
+func TestShouldStopNullHwnd(t *testing.T) {
+	if !shouldStop(0) {
+		t.Fatal("null hwnd should stop")
+	}
+	if readyToMaximize(0) {
+		t.Fatal("null hwnd is not ready")
+	}
+}
+
 func TestWinEventProcIgnoresNoise(t *testing.T) {
 	if winEventProc(0, EVENT_SHOW, 0, 0, 0, 0, 0) != 0 {
 		t.Fatal("null hwnd should be ignored")

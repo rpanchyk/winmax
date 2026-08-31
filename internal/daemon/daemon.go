@@ -13,8 +13,13 @@ import (
 )
 
 const (
-	retryAttempts = 5
+	retryAttempts = 15
 	retryDelay    = 200 * time.Millisecond
+	stableNeeded  = 3
+	stableWait    = 100 * time.Millisecond
+	stableMax     = 20
+	appMaxWait    = 10
+	appMaxDelay   = 80 * time.Millisecond
 )
 
 type handledKey struct {
@@ -62,7 +67,12 @@ func (d *Daemon) Run() error {
 		activeLock.Unlock()
 	}()
 
-	for _, ev := range []uint32{win32.EVENT_OBJECT_SHOW, win32.EVENT_OBJECT_NAMECHANGE, win32.EVENT_OBJECT_DESTROY} {
+	for _, ev := range []uint32{
+		win32.EVENT_OBJECT_SHOW,
+		win32.EVENT_OBJECT_HIDE,
+		win32.EVENT_OBJECT_NAMECHANGE,
+		win32.EVENT_OBJECT_DESTROY,
+	} {
 		hook, err := win32.SetWinEventHook(ev, ev, eventCB)
 		if err != nil {
 			d.unhook()
@@ -109,7 +119,15 @@ func winEventProc(_, event, hwnd uintptr, idObject, _, _, _ uintptr) uintptr {
 
 	switch event {
 	case win32.EVENT_OBJECT_DESTROY:
+		owner := win32.Owner(hwnd)
 		d.forget(hwnd)
+		if owner != 0 {
+			go d.consider(owner)
+		}
+	case win32.EVENT_OBJECT_HIDE:
+		if owner := win32.Owner(hwnd); owner != 0 {
+			go d.consider(owner)
+		}
 	case win32.EVENT_OBJECT_SHOW, win32.EVENT_OBJECT_NAMECHANGE:
 		go d.consider(hwnd)
 	}
@@ -121,7 +139,7 @@ func enumWindowsProc(hwnd, _ uintptr) uintptr {
 	d := active
 	activeLock.Unlock()
 	if d != nil {
-		d.consider(hwnd)
+		go d.consider(hwnd)
 	}
 	return 1
 }
@@ -141,11 +159,11 @@ func (d *Daemon) consider(hwnd uintptr) {
 }
 
 func (d *Daemon) tryMaximize(hwnd uintptr) bool {
-	if !win32.IsWindow(hwnd) || !win32.IsTopLevel(hwnd) || !win32.IsWindowVisible(hwnd) {
+	if shouldStop(hwnd) {
 		return true
 	}
-	if win32.IsToolWindow(hwnd) || !win32.CanMaximize(hwnd) {
-		return true
+	if !readyToMaximize(hwnd) {
+		return false
 	}
 
 	pid := win32.GetWindowProcessID(hwnd)
@@ -158,20 +176,96 @@ func (d *Daemon) tryMaximize(hwnd uintptr) bool {
 	path := win32.ProcessImageForWindow(hwnd, pid)
 	rule, ok := match.First(d.snapshotRules(), title, path)
 	if !ok {
-		// Title is often empty on the first SHOW; keep retrying until it appears.
 		return title != ""
 	}
-	if win32.IsZoomed(hwnd) {
-		d.markHandled(key)
+
+	waitUntilStable(hwnd)
+	if !readyToMaximize(hwnd) {
+		return shouldStop(hwnd)
+	}
+
+	// Last session was maximized: the app may apply SW_SHOWMAXIMIZED, then restore
+	// (login / MDI). A brief IsZoomed is not "done".
+	waitForSavedMaximize(hwnd)
+	if !readyToMaximize(hwnd) {
+		return shouldStop(hwnd)
+	}
+	if d.alreadyHandled(key) {
 		return true
 	}
 
-	// ShowWindow's return is "was visible", not success. Call it once; a retry
-	// would maximize the same window again (SHOW also fires another event).
+	if win32.IsZoomed(hwnd) && staysZoomed(hwnd) {
+		d.markHandled(key)
+		return true
+	}
+	if !readyToMaximize(hwnd) {
+		return shouldStop(hwnd)
+	}
+
 	d.markHandled(key)
 	win32.ShowWindow(hwnd, win32.SW_MAXIMIZE)
 	d.log.Printf("maximized app=%s hwnd=%#x pid=%d title=%q exe=%s", rule.Name, hwnd, pid, title, path)
 	return true
+}
+
+func shouldStop(hwnd uintptr) bool {
+	return !win32.IsWindow(hwnd) || !win32.IsTopLevel(hwnd) || win32.IsToolWindow(hwnd) || win32.IsDialogWindow(hwnd)
+}
+
+func readyToMaximize(hwnd uintptr) bool {
+	return !shouldStop(hwnd) &&
+		win32.IsWindowEnabled(hwnd) &&
+		win32.IsWindowVisible(hwnd) &&
+		win32.CanMaximize(hwnd)
+}
+
+func waitForSavedMaximize(hwnd uintptr) {
+	sawPlacement := false
+	for i := 0; i < appMaxWait; i++ {
+		if !win32.IsWindow(hwnd) {
+			return
+		}
+		if win32.IsZoomed(hwnd) {
+			return
+		}
+		if win32.PlacementMaximized(hwnd) {
+			sawPlacement = true
+		} else if i >= 3 && !sawPlacement {
+			return
+		}
+		time.Sleep(appMaxDelay)
+	}
+}
+
+func staysZoomed(hwnd uintptr) bool {
+	for i := 0; i < appMaxWait; i++ {
+		time.Sleep(appMaxDelay)
+		if !win32.IsWindow(hwnd) || !win32.IsWindowEnabled(hwnd) || !win32.IsZoomed(hwnd) {
+			return false
+		}
+	}
+	return true
+}
+
+func waitUntilStable(hwnd uintptr) {
+	var last win32.RECT
+	same := 0
+	for i := 0; i < stableMax; i++ {
+		r, ok := win32.GetWindowRect(hwnd)
+		if !ok || !win32.IsWindow(hwnd) {
+			return
+		}
+		if r == last {
+			same++
+			if same >= stableNeeded {
+				return
+			}
+		} else {
+			same = 0
+			last = r
+		}
+		time.Sleep(stableWait)
+	}
 }
 
 func (d *Daemon) SetRules(rules []match.Rule) {

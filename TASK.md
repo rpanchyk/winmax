@@ -8,12 +8,12 @@ All configuration is done in the `config.yml` file.
 apps:
   - name: "MetaTrader" # Logging label only.
     match:
-      condition: "AND" # AND or OR. Default is AND.
+      condition: "OR" # AND or OR. Default is AND.
       title: "MetaTrader" # Window title wildcard / substring.
-      process: "terminal64.exe" # Executable path or file name wildcard / substring.
+      process: "*terminal*.exe" # Executable path or file name wildcard / substring.
 ```
 
-`name` is used in logs. `match.title` and `match.process` identify the window. If both are set, `condition` decides whether both must match (`AND`) or either may match (`OR`). First matching app wins.
+`name` is used in logs. `match.title` and `match.process` identify the window. If both are set, `condition` decides whether both must match (`AND`) or either may match (`OR`). First matching app wins. Broker titles often omit the word MetaTrader, so `OR` (or process-only) is the usual match. MetaTrader 4 is `terminal.exe`; MetaTrader 5 is `terminal64.exe`.
 
 ## Implementation
 
@@ -23,6 +23,8 @@ Code is written in Go.
 ### Daemon
 The system daemon is implemented as a Windows service.
 It listens to new open windows and maximizes them by predefined rules.
+
+It maximizes the main top-level window only. Child windows, tool windows, and owned dialogs (login / connect) are ignored. If a modal is open, it waits until that dialog closes, then maximizes the owner. If the previous session was closed maximized, a brief maximized flash on the next start is not treated as done — the window is maximized once after startup settles.
 
 It can be run in console mode with `winmax console` for debugging.
 

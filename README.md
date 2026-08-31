@@ -10,7 +10,9 @@ Typical use: keep MetaTrader (or any other app) maximized when it opens.
 - Per-user session worker so maximize works on the interactive desktop (Session 0 isolation)
 - Rule matching by window title and/or process path
 - `AND` / `OR` conditions, with `*` / `?` wildcards (plain strings are treated as substrings)
-- Skips dialogs, tool windows, and windows that are already maximized
+- Skips child windows, tool windows, and owned dialogs (login / connect modals)
+- Waits until a modal closes, then maximizes the main window once
+- Still maximizes when the previous session was closed maximized (does not treat a startup flash as done)
 - `reload` without restarting the service
 - Console / foreground mode for debugging
 - File logging next to the executable
@@ -59,7 +61,7 @@ apps:
     match:
       condition: "OR"
       title: "MetaTrader"
-      process: "terminal64.exe"
+      process: "*terminal*.exe"
 ```
 
 | Field | Required | Meaning |
@@ -77,14 +79,14 @@ apps:
     match:
       - condition: "OR"
       - title: "MetaTrader"
-      - process: "terminal64.exe"
+      - process: "*terminal*.exe"
 ```
 
 ### Matching rules
 
 - Comparison is case-insensitive.
 - A pattern without `*` or `?` is a substring. `MetaTrader` matches `MetaTrader 5` and `MetaTrader 4`. `terminal64.exe` matches `C:\Program Files\MetaTrader 5\terminal64.exe`.
-- Explicit wildcards: `*` any sequence (including `\`), `?` one character. Example: `*terminal64.exe*`.
+- Explicit wildcards: `*` any sequence (including `\`), `?` one character. Example: `*terminal*.exe` matches both MT4 `terminal.exe` and MT5 `terminal64.exe`.
 - `AND` — every field you set must match.
 - `OR` — either `title` or `process` may match (only when both are set).
 - If only `title` or only `process` is set, that field alone is enough.
@@ -92,13 +94,15 @@ apps:
 
 Broker terminals often use a custom title that does not contain `MetaTrader` (account number, company name, symbol). In that case use `condition: "OR"`, or match `process` only.
 
+MetaTrader 4 is `terminal.exe`; MetaTrader 5 is `terminal64.exe`. A title match of `MetaTrader` covers both. To match by process alone, use `*terminal*.exe`, or list two app entries.
+
 ```yaml
 apps:
   - name: "MetaTrader"
     match:
       condition: "OR"
       title: "MetaTrader"
-      process: "terminal64.exe"
+      process: "*terminal*.exe"
 ```
 
 ### Config file location
@@ -140,11 +144,15 @@ Only one watcher runs per user session. Starting `console` while the service wor
 A Windows service cannot see or resize windows on the user’s desktop (Session 0 isolation). WinMax therefore uses two processes:
 
 1. **Service (`WinMax`)** — LocalSystem, auto-start. Watches logon sessions (active, connected, and disconnected) and starts a worker in each one. Logs to Event Viewer (source `WinMax`).
-2. **Worker (`winmax worker`)** — runs as the logged-on user. Hooks window show / title-change events (`SetWinEventHook`), matches `config.yml`, and calls `ShowWindow(SW_MAXIMIZE)`. Logs to `winmax.log`.
+2. **Worker (`winmax worker`)** — runs as the logged-on user. Hooks show / hide / title-change / destroy events (`SetWinEventHook`), matches `config.yml`, and calls `ShowWindow(SW_MAXIMIZE)` on the main window. Logs to `winmax.log`.
 
 `console` and `foreground` skip the service and run the watcher in the current terminal.
 
-Windows that are not top-level, not visible, have no maximize box, or are tool windows are ignored. Already-maximized windows are left alone.
+The watcher only maximizes the main top-level window:
+
+- Child windows, tool windows, owned dialogs, `WS_EX_DLGMODALFRAME` windows, and windows with no maximize box are ignored.
+- If the main window is disabled because a modal is open (MetaTrader login / connect), maximize waits. When that dialog hides or is destroyed, the owner is considered again.
+- The window size is allowed to settle so the app can apply last-session placement. If it stays maximized, WinMax leaves it. If it flashes maximized and then restores, WinMax maximizes it once. That covers closing the app while maximized and opening it again.
 
 ## Logging
 
@@ -157,8 +165,8 @@ Example:
 
 ```text
 winmax: 2026/08/31 07:25:38 loaded config C:\Tools\winmax\config.yml
-winmax: 2026/08/31 07:25:38 watching new windows for: [MetaTrader [AND title=MetaTrader process=terminal64.exe]]
-winmax: 2026/08/31 07:25:38 maximized app=MetaTrader hwnd=0x5d05a2 pid=51848 title="..." exe=C:\Program Files\MetaTrader 5\terminal64.exe
+winmax: 2026/08/31 07:25:38 watching new windows for: [MetaTrader [OR title=MetaTrader process=*terminal*.exe]]
+winmax: 2026/08/31 07:25:38 maximized app=MetaTrader hwnd=0x5d05a2 pid=51848 title="..." exe=C:\Program Files (x86)\MetaTrader 4 IC Markets Global\terminal.exe
 ```
 
 ## Build and test
@@ -168,7 +176,7 @@ go test ./...
 go build -o winmax.exe ./cmd/winmax
 ```
 
-The project is Windows-only (`//go:build windows` on service, Win32, and session code). Tests that would install a service or maximize real windows are not included.
+The project is Windows-only (`//go:build windows` on service, Win32, and session code). Tests create temporary windows to exercise Win32 helpers; they do not install the service.
 
 ## Limitations
 
