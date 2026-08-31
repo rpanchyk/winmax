@@ -32,7 +32,7 @@ Go (Windows only).
 - **Windows service (`WinMax`)** — LocalSystem, auto-start. Supervises per-session workers for active, connected, and disconnected logon sessions.
 - **Worker (`winmax worker`)** — internal; runs as the logged-on user. Hooks window show/hide/title/destroy events, matches `config.yml`, calls `ShowWindow(SW_MAXIMIZE)`.
 
-Console / foreground mode (`winmax console`) runs the worker in the current terminal for debugging.
+Foreground mode (`winmax foreground`) runs the worker in the current terminal for debugging.
 
 The watcher maximizes the main top-level window only. Child windows, tool windows, and owned dialogs (login / connect) are ignored. If a modal is open, it waits until that dialog closes, then maximizes the owner. If the previous session was closed maximized, a brief maximized flash on the next start is not treated as done — the window is maximized once after startup settles.
 
@@ -40,7 +40,7 @@ Only one worker runs per user session (mutex `Local\WinMax_UserLogonDaemon`).
 
 ### Logging
 
-- Watcher: `winmax.log` next to the executable; console / foreground also prints to stdout.
+- Watcher: `winmax.log` next to the executable; foreground mode also prints to stdout.
 - Service lifecycle: Event Viewer, source `WinMax`.
 - Early worker failure: `winmax-worker.err` next to the executable.
 
@@ -53,6 +53,6 @@ Only one worker runs per user session (mutex `Local\WinMax_UserLogonDaemon`).
 | `winmax uninstall` | Stop and remove service (Administrator) |
 | `winmax reload` | Reload config in the running worker; re-scans open windows |
 | `winmax status` | Service state and binary path |
-| `winmax foreground` / `winmax console` | Run watcher in this terminal (`Ctrl+C` to stop). Optional `--config` / `-c`. |
+| `winmax foreground` | Run watcher in this terminal (`Ctrl+C` to stop). Optional `--config` / `-c`. |
 
 Full details: [README.md](README.md).

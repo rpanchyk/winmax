@@ -14,7 +14,7 @@ Typical use: keep MetaTrader (or any other app) maximized when it opens.
 - Waits until a modal closes, then maximizes the main window once
 - Still maximizes when the previous session was closed maximized (does not treat a startup flash as done)
 - `reload` without restarting the service
-- Console / foreground mode for debugging
+- Foreground mode for debugging
 - File logging next to the executable
 
 Windows only. Built with Go.
@@ -39,7 +39,7 @@ go build -o winmax.exe ./cmd/winmax
 Try it without installing a service:
 
 ```powershell
-.\winmax.exe console
+.\winmax.exe foreground
 ```
 
 Open a matching app (for example MetaTrader). The window should maximize. Stop with `Ctrl+C`.
@@ -109,7 +109,7 @@ apps:
 
 Resolved in this order:
 
-1. `--config` / `-c` (console, foreground, and worker only)
+1. `--config` / `-c` (foreground and worker only)
 2. `WINMAX_CONFIG` environment variable
 3. `config.yml` next to `winmax.exe`
 4. `config.yml` in the current working directory
@@ -133,15 +133,14 @@ winmax install      install and start the Windows service (Administrator)
 winmax uninstall    stop and delete the Windows service (Administrator)
 winmax reload       reload config.yml in the running watcher
 winmax foreground   run attached to this terminal with live logs (Ctrl+C)
-winmax console      same as foreground
 winmax status       show service state and binary path
 
-winmax console --config C:\path\config.yml
+winmax foreground --config C:\path\config.yml
 ```
 
 `install` / `uninstall` must be run from an elevated prompt. `config.yml` must sit next to `winmax.exe`. `install` restarts the service if it is already running, waits until the desktop worker is alive, and removes a legacy Run-key autostart entry if one exists from an older install. `status` does not need Administrator.
 
-Only one watcher runs per user session. Starting `console` while the service worker is already running will fail with “already running”.
+Only one watcher runs per user session. Starting `foreground` while the service worker is already running will fail with “already running”.
 
 ## How it works
 
@@ -150,7 +149,7 @@ A Windows service cannot see or resize windows on the user’s desktop (Session 
 1. **Service (`WinMax`)** — LocalSystem, auto-start. Watches logon sessions (active, connected, and disconnected) and starts a worker in each one. Logs to Event Viewer (source `WinMax`).
 2. **Worker (`winmax worker`)** — runs as the logged-on user. Hooks show / hide / title-change / destroy events (`SetWinEventHook`), matches `config.yml`, and calls `ShowWindow(SW_MAXIMIZE)` on the main window. Logs to `winmax.log`.
 
-`console` and `foreground` skip the service and run the watcher in the current terminal.
+`foreground` skips the service and runs the watcher in the current terminal.
 
 The watcher only maximizes the main top-level window:
 
@@ -160,8 +159,8 @@ The watcher only maximizes the main top-level window:
 
 ## Logging
 
-- Watcher (`console`, `foreground`, service worker): append to `winmax.log` next to `winmax.exe`.
-- `console` / `foreground` also print to stdout.
+- Watcher (`foreground`, service worker): append to `winmax.log` next to `winmax.exe`.
+- `foreground` also prints to stdout.
 - Windows service lifecycle: Event Viewer, source `WinMax` (does not write the log file, so LocalSystem and the user do not share it).
 - If the worker exits before it can open the log, the reason is appended to `winmax-worker.err` next to the exe.
 

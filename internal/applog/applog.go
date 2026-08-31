@@ -17,7 +17,7 @@ func Path() (string, error) {
 	return filepath.Join(filepath.Dir(exe), "winmax.log"), nil
 }
 
-func Open(console bool) (*log.Logger, io.Closer, error) {
+func Open(foreground bool) (*log.Logger, io.Closer, error) {
 	path, err := Path()
 	if err != nil {
 		return nil, nil, err
@@ -27,7 +27,7 @@ func Open(console bool) (*log.Logger, io.Closer, error) {
 		return nil, nil, err
 	}
 	var w io.Writer = f
-	if console {
+	if foreground {
 		w = io.MultiWriter(os.Stdout, f)
 	}
 	return log.New(w, "winmax: ", log.LstdFlags), f, nil

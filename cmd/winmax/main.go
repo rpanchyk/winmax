@@ -58,7 +58,7 @@ func run(args []string) error {
 		return reload()
 	case "status":
 		return status()
-	case "console", "foreground":
+	case "foreground":
 		cfgPath, err := parseConfigFlag(args[1:])
 		if err != nil {
 			return err
@@ -104,17 +104,16 @@ Usage:
   winmax uninstall    stop and remove the Windows service (requires Administrator)
   winmax reload       reload config.yml in the running daemon
   winmax foreground   run in the foreground with logs (Ctrl+C to stop)
-  winmax console      run in the console with logs (Ctrl+C to stop)
   winmax status       show Windows service status
 
-  --config, -c PATH   config file for console / foreground / worker
+  --config, -c PATH   config file for foreground / worker
 `)
 }
 
-func runWatcher(console bool, explicitConfig string) error {
+func runWatcher(foreground bool, explicitConfig string) error {
 	runtime.LockOSThread()
 
-	logger, closer, err := applog.Open(console)
+	logger, closer, err := applog.Open(foreground)
 	if err != nil {
 		writeWorkerError(err)
 		return err
@@ -140,7 +139,7 @@ func runWatcher(console bool, explicitConfig string) error {
 	}
 	defer handle.Close()
 
-	if !console {
+	if !foreground {
 		win32.HideConsole()
 	}
 
